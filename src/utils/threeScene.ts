@@ -77,9 +77,9 @@ export class ThreeSceneManager {
       '/models/shoe.glb',
       (gltf) => {
         this.model = gltf.scene;
-        this.model.position.set(0, -0.09, -0.03);
-        this.model.rotation.set(0, -0.628, 0);
-        this.model.scale.set(0.071, 0.071, 0.071);
+        this.model.position.set(0, 0, 0);
+        this.model.rotation.set(0, 0, 0);
+        this.model.scale.set(0.1, 0.1, 0.1);
         this.scene.add(this.model);
       },
       undefined,
@@ -239,14 +239,14 @@ export class ThreeSceneManager {
         z: this.model.position.z
       };
     }
-    return { x: 0, y: -0.09, z: -0.03 };
+    return { x: 0, y: 0, z: 0 };
   }
 
   getModelScale(): number {
     if (this.model) {
       return this.model.scale.x;
     }
-    return 0.071;
+    return 0.1;
   }
 
   updateModelRotation(x: number, y: number, z: number): void {
@@ -263,7 +263,7 @@ export class ThreeSceneManager {
         z: this.model.rotation.z
       };
     }
-    return { x: 0, y: -0.628, z: 0 };
+    return { x: 0, y: 0, z: 0 };
   }
 
   private animate = (): void => {
