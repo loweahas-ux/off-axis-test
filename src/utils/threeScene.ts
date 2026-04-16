@@ -23,6 +23,8 @@ export class ThreeSceneManager {
   private debugMode: boolean = false;
   private debugHelpers: THREE.Object3D[] = [];
   private roomObjects: THREE.Object3D[] = [];
+  private torchLeft: THREE.PointLight | null = null;
+  private torchRight: THREE.PointLight | null = null;
 
   constructor(options: ThreeSceneOptions) {
     const width = options.width || options.container.clientWidth;
@@ -49,20 +51,20 @@ export class ThreeSceneManager {
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     options.container.appendChild(this.renderer.domElement);
 
-    this.loadShoeModel();
-    this.createWireframeRoom();
+    this.createCenterObject();
+    this.createEgyptianRoom();
     this.createDebugHelpers();
   }
 
-  private loadShoeModel(): void {
-    const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
+  private createCenterObject(): void {
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.1);
     this.scene.add(ambientLight);
 
-    const directionalLight1 = new THREE.DirectionalLight(0xffffff, 0.8);
+    const directionalLight1 = new THREE.DirectionalLight(0xffffff, 0.3);
     directionalLight1.position.set(1, 1, 1);
     this.scene.add(directionalLight1);
 
-    const directionalLight2 = new THREE.DirectionalLight(0xffffff, 0.5);
+    const directionalLight2 = new THREE.DirectionalLight(0xffffff, 0.1);
     directionalLight2.position.set(-1, -1, 0.5);
     this.scene.add(directionalLight2);
 
@@ -74,113 +76,201 @@ export class ThreeSceneManager {
     loader.setDRACOLoader(dracoLoader);
 
     loader.load(
-      '/models/shoe.glb',
+      '/models/nefertiti.glb',
       (gltf) => {
         this.model = gltf.scene;
-        this.model.position.set(0, 0, 0);
-        this.model.rotation.set(0, 0, 0);
-        this.model.scale.set(0.1, 0.1, 0.1);
+
+        // Enhance material to look more majestic
+        this.model.traverse((child) => {
+          if (child instanceof THREE.Mesh && child.material) {
+            const mat = child.material as THREE.MeshStandardMaterial;
+            mat.roughness = 0.4;
+            mat.metalness = 0.6;
+            // Add a subtle golden tint
+            mat.color.setHex(0xffddaa);
+          }
+        });
+
+        // The Nefertiti model may need specific positioning
+        this.model.position.set(0, -0.05, 0); // slightly lowered
+        this.model.rotation.set(0, Math.PI, 0); // face towards the user
+        // Extremely small scale (0.008) is required for this particular model
+        this.model.scale.set(0.008, 0.008, 0.008);
         this.scene.add(this.model);
       },
       undefined,
       (error) => {
-        console.error('Error loading shoe model:', error);
+        console.error('Error loading Nefertiti model:', error);
       }
     );
   }
 
-  private createWireframeRoom(): void {
-    this.removeWireframeRoom();
+  private createEgyptianRoom(): void {
+    this.removeRoomObjects();
 
     const screenDims = this.offAxisCamera.getScreenDimensions();
     const roomWidth = screenDims.width;
     const roomHeight = screenDims.height;
-    const roomDepth = 0.35;
-    const gridDivisions = 8;
-    const gridColor = 0xff8c00;
+    const roomDepth = 0.40;
 
-    const wallMaterial = new THREE.LineBasicMaterial({
-      color: gridColor,
-      transparent: true,
-      opacity: 0.8,
-      depthTest: true,
-      depthWrite: true,
-      linewidth: 8
+    const textureLoader = new THREE.TextureLoader();
+
+    // Load Sandstone Wall Texture
+    const sandstoneTex = textureLoader.load('/media/sandstone.png');
+    sandstoneTex.wrapS = THREE.RepeatWrapping;
+    sandstoneTex.wrapT = THREE.RepeatWrapping;
+    sandstoneTex.repeat.set(2, 2);
+
+    const wallMaterial = new THREE.MeshStandardMaterial({
+      map: sandstoneTex,
+      roughness: 0.9,
+      metalness: 0.1
     });
 
-    const createGridWall = (width: number, height: number): THREE.LineSegments => {
-      const geometry = new THREE.BufferGeometry();
-      const vertices: number[] = [];
+    // To restore spatial depth (공간감), we overlay an edge line to frame the room
+    const lineMaterial = new THREE.LineBasicMaterial({ color: 0x331100, linewidth: 2, opacity: 0.5, transparent: true });
 
-      for (let i = 0; i <= gridDivisions; i++) {
-        const t = i / gridDivisions;
-        vertices.push(-width / 2 + t * width, -height / 2, 0);
-        vertices.push(-width / 2 + t * width, height / 2, 0);
-      }
-
-      for (let i = 0; i <= gridDivisions; i++) {
-        const t = i / gridDivisions;
-        vertices.push(-width / 2, -height / 2 + t * height, 0);
-        vertices.push(width / 2, -height / 2 + t * height, 0);
-      }
-
-      geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
-      return new THREE.LineSegments(geometry, wallMaterial);
+    const createWall = (width: number, height: number): THREE.Mesh => {
+      const geom = new THREE.PlaneGeometry(width, height);
+      const mesh = new THREE.Mesh(geom, wallMaterial);
+      const edges = new THREE.LineSegments(new THREE.EdgesGeometry(geom), lineMaterial);
+      mesh.add(edges);
+      return mesh;
     };
 
-    const backWall = createGridWall(roomWidth, roomHeight);
+    const backWall = createWall(roomWidth, roomHeight);
     backWall.position.z = -roomDepth;
     this.scene.add(backWall);
     this.roomObjects.push(backWall);
 
-    const leftWall = createGridWall(roomDepth, roomHeight);
+    const leftWall = createWall(roomDepth, roomHeight);
     leftWall.rotation.y = Math.PI / 2;
     leftWall.position.x = -roomWidth / 2;
     leftWall.position.z = -roomDepth / 2;
     this.scene.add(leftWall);
     this.roomObjects.push(leftWall);
 
-    const rightWall = createGridWall(roomDepth, roomHeight);
+    const rightWall = createWall(roomDepth, roomHeight);
     rightWall.rotation.y = -Math.PI / 2;
     rightWall.position.x = roomWidth / 2;
     rightWall.position.z = -roomDepth / 2;
     this.scene.add(rightWall);
     this.roomObjects.push(rightWall);
 
-    const floor = createGridWall(roomWidth, roomDepth);
-    floor.rotation.x = Math.PI / 2;
+    const floor = createWall(roomWidth, roomDepth);
+    floor.rotation.x = -Math.PI / 2;
     floor.position.y = -roomHeight / 2;
     floor.position.z = -roomDepth / 2;
     this.scene.add(floor);
     this.roomObjects.push(floor);
 
-    const ceiling = createGridWall(roomWidth, roomDepth);
-    ceiling.rotation.x = -Math.PI / 2;
+    const ceiling = createWall(roomWidth, roomDepth);
+    ceiling.rotation.x = Math.PI / 2;
     ceiling.position.y = roomHeight / 2;
     ceiling.position.z = -roomDepth / 2;
     this.scene.add(ceiling);
     this.roomObjects.push(ceiling);
 
-    const screenFrame = new THREE.LineSegments(
-      new THREE.EdgesGeometry(new THREE.PlaneGeometry(roomWidth, roomHeight)),
-      new THREE.LineBasicMaterial({
-        color: 0xff0000,
-        linewidth: 4,
-        depthTest: true,
-        depthWrite: true
-      })
-    );
-    screenFrame.position.z = 0.001;
-    this.scene.add(screenFrame);
-    this.roomObjects.push(screenFrame);
+    // Egyptian Lotus/Papyrus Columns (Replaces plain Box pillars)
+    const createEgyptianPillar = (): THREE.Group => {
+      const group = new THREE.Group();
+      const h = roomHeight;
+      const startY = -h / 2;
+
+      // Bottom Base (Square)
+      const baseHeight = h * 0.05;
+      const baseGeom = new THREE.BoxGeometry(0.064, baseHeight, 0.064);
+      const baseMesh = new THREE.Mesh(baseGeom, wallMaterial);
+      baseMesh.position.y = startY + baseHeight / 2;
+      group.add(baseMesh);
+
+      // Curved Shaft and Capital (Lathe)
+      // Removed the center points (0.001) to prevent the vertex normals from pointing downwards/upwards at the seams, 
+      // which was causing the dark shadow artifacts at the bottom and top.
+      const points = [];
+      points.push(new THREE.Vector2(0.028, startY + baseHeight)); // Bulge Out
+      points.push(new THREE.Vector2(0.028, startY + h * 0.15));
+      points.push(new THREE.Vector2(0.020, startY + h * 0.75));   // Taper in
+      points.push(new THREE.Vector2(0.020, startY + h * 0.8));    // Neck
+      points.push(new THREE.Vector2(0.032, startY + h * 0.85));   // Capital flare
+      points.push(new THREE.Vector2(0.032, startY + h * 0.92));
+      points.push(new THREE.Vector2(0.024, startY + h * 0.95));   // Restrict top
+
+      const latheGeom = new THREE.LatheGeometry(points, 32);
+      const latheMesh = new THREE.Mesh(latheGeom, wallMaterial);
+      group.add(latheMesh);
+
+      // Top Abacus (Square junction to ceiling)
+      const abacusHeight = h * 0.05;
+      const abacusGeom = new THREE.BoxGeometry(0.056, abacusHeight, 0.056);
+      const abacusMesh = new THREE.Mesh(abacusGeom, wallMaterial);
+      abacusMesh.position.y = (h / 2) - (abacusHeight / 2);
+      group.add(abacusMesh);
+
+      return group;
+    };
+
+    // Place the pillars slightly inset from the exact corners so they are fully visible
+    const insetX = 0.04;
+    const insetZ = 0.04;
+    const positions = [
+      [-roomWidth / 2 + insetX, -roomDepth + insetZ],
+      [roomWidth / 2 - insetX, -roomDepth + insetZ],
+      [-roomWidth / 2 + insetX, 0 - insetZ],
+      [roomWidth / 2 - insetX, 0 - insetZ]
+    ];
+    positions.forEach(([x, z]) => {
+      const p = createEgyptianPillar();
+      p.position.set(x, 0, z);
+      this.scene.add(p);
+      this.roomObjects.push(p);
+    });
+
+    // Load Gold Texture for Altar
+    const goldTex = textureLoader.load('/media/gold.png');
+    const goldMaterial = new THREE.MeshStandardMaterial({
+      map: goldTex,
+      roughness: 0.3,
+      metalness: 0.8,
+      color: 0xffcc33
+    });
+
+    // Create Stepped Altar Layout
+    const step1 = new THREE.Mesh(new THREE.BoxGeometry(roomWidth * 0.9, 0.05, 0.2), goldMaterial);
+    step1.position.set(0, -roomHeight / 2 + 0.025, -roomDepth + 0.1);
+    const step1Edges = new THREE.LineSegments(new THREE.EdgesGeometry(step1.geometry), lineMaterial);
+    step1.add(step1Edges);
+    this.scene.add(step1);
+    this.roomObjects.push(step1);
+
+    const step2 = new THREE.Mesh(new THREE.BoxGeometry(roomWidth * 0.6, 0.05, 0.1), goldMaterial);
+    step2.position.set(0, -roomHeight / 2 + 0.075, -roomDepth + 0.05);
+    const step2Edges = new THREE.LineSegments(new THREE.EdgesGeometry(step2.geometry), lineMaterial);
+    step2.add(step2Edges);
+    this.scene.add(step2);
+    this.roomObjects.push(step2);
+
+    // Warm Egyptian Torch Lights (Reddish-brown fire color, less saturated)
+    // Placed slightly below the midline to illuminate the lower structures beautifully.
+    this.torchLeft = new THREE.PointLight(0xb24a22, 1.0, 1.2);
+    this.torchLeft.position.set(-roomWidth / 2.5, -0.02, 0.1);
+    this.scene.add(this.torchLeft);
+    this.roomObjects.push(this.torchLeft);
+
+    this.torchRight = new THREE.PointLight(0xb24a22, 1.0, 1.2);
+    this.torchRight.position.set(roomWidth / 2.5, -0.02, 0.1);
+    this.scene.add(this.torchRight);
+    this.roomObjects.push(this.torchRight);
   }
 
-  private removeWireframeRoom(): void {
+  private removeRoomObjects(): void {
     this.roomObjects.forEach(obj => {
       this.scene.remove(obj);
-      if (obj instanceof THREE.LineSegments) {
+      if (obj instanceof THREE.Mesh) {
         obj.geometry.dispose();
-        if (obj.material instanceof THREE.Material) {
+        if (Array.isArray(obj.material)) {
+          obj.material.forEach(m => m.dispose());
+        } else {
           obj.material.dispose();
         }
       }
@@ -216,7 +306,7 @@ export class ThreeSceneManager {
 
   updateCalibration(calibration: CalibrationData): void {
     this.offAxisCamera.updateCalibration(calibration);
-    this.createWireframeRoom();
+    this.createEgyptianRoom();
   }
 
   updateModelPosition(x: number, y: number, z: number): void {
@@ -272,6 +362,14 @@ export class ThreeSceneManager {
     this.animationFrameId = requestAnimationFrame(this.animate);
 
     this.offAxisCamera.updateFromHeadPose(this.currentHeadPose);
+
+    // Apply flickering torch animation
+    if (this.torchLeft && this.torchRight) {
+      const time = Date.now() * 0.005;
+      // Combine multiple sine waves for a chaotic, unpredictable flicker
+      this.torchLeft.intensity = 1.0 + Math.sin(time) * 0.15 + Math.sin(time * 3.1) * 0.05;
+      this.torchRight.intensity = 1.0 + Math.sin(time + 2.0) * 0.15 + Math.sin(time * 2.7) * 0.05;
+    }
 
     if (this.debugMode && this.debugHelpers.length > 1) {
       const worldPos = this.offAxisCamera.headPoseToWorldPosition(this.currentHeadPose);
